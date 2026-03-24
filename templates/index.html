@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shape Extractor</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#1e1e2e; font-family:'Segoe UI',system-ui,sans-serif; color:#cdd6f4; }
+
+  /* ---- Tab bar ---- */
+  #tab-bar { display:flex; height:42px; background:#181825; border-bottom:1px solid #45475a; z-index:20; position:relative; }
+  .tab-btn {
+    flex:1; border:none; background:transparent; color:#7f849c; font-size:14px; font-weight:600;
+    cursor:pointer; transition:all .2s; border-bottom:2px solid transparent; padding:0 12px;
+  }
+  .tab-btn:hover { color:#bac2de; background:rgba(137,180,250,0.06); }
+  .tab-btn.active { color:#89b4fa; border-bottom-color:#89b4fa; background:rgba(137,180,250,0.08); }
+
+  /* ---- Tab content areas ---- */
+  .tab-content { display:none; position:absolute; top:42px; left:0; right:0; bottom:0; }
+  .tab-content.active { display:flex; flex-direction:column; }
+
+  /* ---- Canvas tabs (1 & 3) ---- */
+  .canvas-wrap { flex:1; position:relative; overflow:hidden; }
+  .canvas-wrap canvas { display:block; cursor:crosshair; touch-action:none; width:100%; height:100%; }
+
+  .overlay {
+    position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    background:rgba(30,30,46,0.88); color:#cdd6f4; padding:10px 24px;
+    border-radius:10px; font-size:15px; z-index:10;
+    border:1px solid #45475a; backdrop-filter:blur(6px);
+    max-width:90vw; text-align:center; line-height:1.5; pointer-events:none;
+  }
+  .overlay .expr { color:#a6e3a1; font-size:22px; font-weight:600; }
+  .overlay .expr .katex { font-size:22px; }
+  .overlay .status { color:#f9e2af; font-size:13px; }
+  .overlay .hint { color:#7f849c; font-size:12px; }
+
+  .bottom-panel {
+    position:absolute; bottom:12px; left:50%; transform:translateX(-50%);
+    background:rgba(30,30,46,0.88); color:#cdd6f4; padding:8px 16px;
+    border-radius:10px; font-size:12px; z-index:10;
+    border:1px solid #45475a; backdrop-filter:blur(6px);
+    max-width:90vw; max-height:30vh; overflow-y:auto; pointer-events:auto; display:none;
+    font-family:'Fira Code','Cascadia Code',monospace;
+  }
+  .bottom-panel table { border-collapse:collapse; width:100%; }
+  .bottom-panel th { color:#89b4fa; text-align:left; padding:4px 10px; border-bottom:1px solid #45475a; }
+  .bottom-panel td { padding:4px 10px; }
+  .bottom-panel tr.pareto-row { cursor:pointer; transition:background 0.15s; }
+  .bottom-panel tr.pareto-row:hover { background:rgba(137,180,250,0.12); }
+  .bottom-panel tr.pareto-row.selected { background:rgba(166,227,161,0.18); color:#a6e3a1; }
+  .bottom-panel tr.pareto-row.best-row td:first-child::before { content:'\2605 '; color:#f9e2af; }
+
+  /* Extract button */
+  .extract-btn {
+    position:absolute; bottom:12px; right:16px; z-index:12;
+    background:#89b4fa; color:#1e1e2e; border:none; border-radius:8px;
+    padding:10px 20px; font-size:14px; font-weight:700; cursor:pointer;
+    transition:all .2s; display:none;
+  }
+  .extract-btn:hover { background:#b4d0fb; transform:translateY(-1px); }
+
+  /* ---- Tab 2: Constraint editor ---- */
+  #tab2 { overflow-y:auto; padding:24px 36px; }
+  #tab2 h2 { color:#89b4fa; font-size:18px; margin-bottom:12px; }
+
+  .tab2-columns { display:flex; gap:24px; margin-bottom:20px; flex-shrink:0; }
+  .tab2-col-left { flex:1; min-width:0; }
+  .tab2-col-right { flex:1; min-width:0; }
+
+  .constraint-table { width:100%; border-collapse:collapse; margin-bottom:20px; }
+  .constraint-table th { text-align:left; padding:8px 10px; color:#89b4fa; border-bottom:1px solid #45475a; font-size:13px; }
+  .constraint-table td { padding:6px 10px; border-bottom:1px solid #313244; vertical-align:middle; }
+  .constraint-table input[type=checkbox] { width:18px; height:18px; accent-color:#a6e3a1; cursor:pointer; }
+  .constraint-table select, .constraint-table input[type=number] {
+    background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;
+    padding:4px 8px; font-size:13px;
+  }
+  .constraint-table input[type=number] { width:80px; }
+  .constraint-table .delete-btn {
+    background:transparent; border:none; color:#f38ba8; cursor:pointer; font-size:16px; padding:2px 6px;
+  }
+  .constraint-table .delete-btn:hover { color:#eba0ac; }
+  .constraint-table tr.not-applicable { opacity:0.8; }
+  .constraint-table tr.not-applicable td { color:#585b70; }
+  .constraint-table .reset-btn {
+    background:#45475a; color:#cdd6f4; border:none; border-radius:3px;
+    padding:2px 6px; font-size:11px; cursor:pointer; margin-left:4px; transition:all .15s;
+  }
+  .constraint-table .reset-btn:hover { background:#89b4fa; color:#1e1e2e; }
+
+  .btn-row { display:flex; gap:12px; margin-bottom:20px; }
+  .btn { background:#89b4fa; color:#1e1e2e; border:none; border-radius:6px; padding:8px 18px; font-size:13px; font-weight:600; cursor:pointer; transition:all .15s; }
+  .btn:hover { background:#b4d0fb; }
+  .btn-green { background:#a6e3a1; }
+  .btn-green:hover { background:#c6f0c2; }
+  .btn-secondary { background:#45475a; color:#cdd6f4; }
+  .btn-secondary:hover { background:#585b70; }
+
+  #latex-preview { background:#181825; border:1px solid #45475a; border-radius:8px; padding:16px 24px; min-height:60px; }
+  #latex-preview .katex-display { margin:6px 0; }
+  #latex-preview .rendered-row { cursor:pointer; padding:6px 10px; margin:4px -10px; border-radius:6px; transition:background 0.15s; }
+  #latex-preview .rendered-row:hover { background:rgba(137,180,250,0.10); }
+  #latex-preview .rendered-row.selected { background:rgba(137,180,250,0.18); border:1px solid rgba(137,180,250,0.35); }
+  #latex-preview .rendered-row.disabled-row { opacity:0.8; }
+  #latex-preview .rendered-row.disabled-row::after { content:'(not applied)'; display:block; font-size:10px; color:#7f849c; margin-top:-2px; }
+
+  /* ---- Tab 2: Preview canvas ---- */
+  .tab2-preview { flex:1; display:flex; flex-direction:column; min-height:0; margin-top:8px; }
+  .tab2-preview h2 { color:#89b4fa; font-size:16px; margin-bottom:8px; flex-shrink:0; }
+  .preview-canvas-wrap { position:relative; flex:1; min-height:0; border:1px solid #45475a; border-radius:8px; overflow:hidden; background:#1e1e2e; }
+  .preview-canvas-wrap canvas { display:block; }
+
+  /* Segment info (Tab 3) */
+  .segment-info-panel {
+    position:absolute; top:12px; right:16px;
+    background:rgba(30,30,46,0.92); color:#cdd6f4; padding:10px 14px;
+    border-radius:8px; font-size:12px; z-index:10;
+    border:1px solid #45475a; max-width:300px; display:none;
+  }
+  .segment-info-panel .seg-item { margin-bottom:4px; }
+  .segment-info-panel .seg-range { color:#89b4fa; font-weight:600; }
+  .segment-info-panel .seg-desc { color:#a6e3a1; margin-left:6px; }
+</style>
+</head>
+<body>
+
+<!-- ===================== TAB BAR ===================== -->
+<div id="tab-bar">
+  <button class="tab-btn active" data-tab="tab1">1. Draw &amp; Fit</button>
+  <button class="tab-btn" data-tab="tab2">2. Shape Properties</button>
+  <button class="tab-btn" data-tab="tab3">3. Constrained Fit</button>
+</div>
+
+<!-- ===================== TAB 1: Draw & Fit ===================== -->
+<div id="tab1" class="tab-content active">
+  <div class="canvas-wrap">
+    <canvas id="c1"></canvas>
+    <div class="overlay" id="overlay1"><span class="hint">Draw a curve to fit</span></div>
+    <div class="bottom-panel" id="pareto-panel"></div>
+    <button class="extract-btn" id="extract-btn">Extract Shape Properties &#x2192;</button>
+  </div>
+</div>
+
+<!-- ===================== TAB 2: Shape Properties ===================== -->
+<div id="tab2" class="tab-content">
+  <div class="tab2-columns">
+    <div class="tab2-col-left">
+      <h2>Rendered Constraints</h2>
+      <div id="latex-preview"></div>
+    </div>
+    <div class="tab2-col-right">
+      <h2>Discovered Shape Properties</h2>
+      <p id="tab2-status" style="color:#f9e2af; margin-bottom:12px;"></p>
+      <table class="constraint-table" id="constraint-table">
+        <thead>
+          <tr><th></th><th>Order</th><th>Sign</th><th>x<sub>low</sub></th><th>x<sub>high</sub></th><th>Description</th><th></th></tr>
+        </thead>
+        <tbody id="constraint-tbody"></tbody>
+      </table>
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="add-constraint-btn">+ Add Constraint</button>
+        <button class="btn btn-green" id="apply-btn">Apply to Constrained Fit &#x2192;</button>
+      </div>
+    </div>
+  </div>
+  <div class="tab2-preview">
+    <h2>Curve Preview</h2>
+    <div class="preview-canvas-wrap">
+      <canvas id="c-preview"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TAB 3: Constrained Fit ===================== -->
+<div id="tab3" class="tab-content">
+  <div class="canvas-wrap">
+    <canvas id="c3"></canvas>
+    <div class="overlay" id="overlay3"><span class="hint">Draw a curve &mdash; CPsplines will fit with constraints</span></div>
+    <div class="segment-info-panel" id="segment-info"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// =========================================================================
+// TAB SWITCHING
+// =========================================================================
+const tabBtns = document.querySelectorAll(".tab-btn");
+const tabContents = document.querySelectorAll(".tab-content");
+function switchTab(tabId) {
+  tabBtns.forEach(b => b.classList.toggle("active", b.dataset.tab === tabId));
+  tabContents.forEach(t => t.classList.toggle("active", t.id === tabId));
+  if (tabId === "tab1") t1_resize();
+  if (tabId === "tab2") tp_resize();
+  if (tabId === "tab3") t3_resize();
+}
+tabBtns.forEach(b => b.addEventListener("click", () => switchTab(b.dataset.tab)));
+
+// =========================================================================
+// CANVAS HELPERS (shared for Tab1 and Tab3)
+// =========================================================================
+const XMIN = -10, XMAX = 10, YMIN = -10, YMAX = 10;
+
+function mathToCanvas(mx, my, cw, ch) {
+  return [(mx - XMIN)/(XMAX - XMIN)*cw, (1 - (my - YMIN)/(YMAX - YMIN))*ch];
+}
+function canvasToMath(cx, cy, cw, ch) {
+  return [XMIN + cx/cw*(XMAX - XMIN), YMIN + (1 - cy/ch)*(YMAX - YMIN)];
+}
+
+function drawGrid(ctx, w, h) {
+  ctx.fillStyle = "#1e1e2e"; ctx.fillRect(0, 0, w, h);
+  // minor
+  ctx.strokeStyle = "#313244"; ctx.lineWidth = 0.5;
+  for (let x = Math.ceil(XMIN); x <= XMAX; x++) { const [cx] = mathToCanvas(x,0,w,h); ctx.beginPath(); ctx.moveTo(cx,0); ctx.lineTo(cx,h); ctx.stroke(); }
+  for (let y = Math.ceil(YMIN); y <= YMAX; y++) { const [,cy] = mathToCanvas(0,y,w,h); ctx.beginPath(); ctx.moveTo(0,cy); ctx.lineTo(w,cy); ctx.stroke(); }
+  // major
+  ctx.strokeStyle = "#45475a"; ctx.lineWidth = 1;
+  for (let x = Math.ceil(XMIN/5)*5; x <= XMAX; x+=5) { const [cx] = mathToCanvas(x,0,w,h); ctx.beginPath(); ctx.moveTo(cx,0); ctx.lineTo(cx,h); ctx.stroke(); }
+  for (let y = Math.ceil(YMIN/5)*5; y <= YMAX; y+=5) { const [,cy] = mathToCanvas(0,y,w,h); ctx.beginPath(); ctx.moveTo(0,cy); ctx.lineTo(w,cy); ctx.stroke(); }
+  // axes
+  ctx.strokeStyle = "#585b70"; ctx.lineWidth = 1.5;
+  const [ax, ay] = mathToCanvas(0,0,w,h);
+  ctx.beginPath(); ctx.moveTo(ax,0); ctx.lineTo(ax,h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,ay); ctx.lineTo(w,ay); ctx.stroke();
+  // labels
+  ctx.fillStyle = "#7f849c"; ctx.font = "11px system-ui,sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (let x = Math.ceil(XMIN); x <= XMAX; x++) { if(!x) continue; const [cx] = mathToCanvas(x,0,w,h); ctx.fillText(x, cx, ay+4); }
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let y = Math.ceil(YMIN); y <= YMAX; y++) { if(!y) continue; const [,cy] = mathToCanvas(0,y,w,h); ctx.fillText(y, ax-6, cy); }
+}
+
+function drawSegmentBands(ctx, w, h, segments) {
+  if (!segments || !segments.length) return;
+  const colors = ["rgba(166,227,161,0.08)","rgba(137,180,250,0.08)","rgba(243,139,168,0.08)","rgba(249,226,175,0.08)"];
+  segments.forEach((seg, i) => {
+    const [x1] = mathToCanvas(seg.xLow, 0, w, h);
+    const [x2] = mathToCanvas(seg.xHigh, 0, w, h);
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fillRect(x1, 0, x2-x1, h);
+    // split lines
+    if (i > 0) { ctx.strokeStyle = "#f9e2af"; ctx.lineWidth = 1; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(x1,0); ctx.lineTo(x1,h); ctx.stroke(); ctx.setLineDash([]); }
+  });
+}
+
+function drawUserCurve(ctx, path, color) {
+  if (path.length < 2) return;
+  ctx.strokeStyle = color || "#cdd6f4"; ctx.lineWidth = 2.5; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(path[0][0], path[0][1]);
+  for (let i=1; i<path.length; i++) ctx.lineTo(path[i][0], path[i][1]);
+  ctx.stroke();
+}
+
+function drawFittedCurve(ctx, curve, w, h, color) {
+  if (!curve || curve.length < 2) return;
+  ctx.strokeStyle = color || "#f38ba8"; ctx.lineWidth = 3; ctx.lineJoin ="round"; ctx.setLineDash([]);
+  ctx.beginPath(); let started = false;
+  for (const [mx, my] of curve) {
+    if (my < YMIN-5 || my > YMAX+5) { started=false; continue; }
+    const [cx,cy] = mathToCanvas(mx,my,w,h);
+    if (!started) { ctx.moveTo(cx,cy); started=true; } else ctx.lineTo(cx,cy);
+  }
+  ctx.stroke();
+}
+
+function resizeCanvas(cvs, c) {
+  const wrap = cvs.parentElement;
+  cvs.width = wrap.clientWidth;
+  cvs.height = wrap.clientHeight;
+}
+
+// =========================================================================
+// TAB 1 STATE & LOGIC
+// =========================================================================
+const canvas1 = document.getElementById("c1");
+const ctx1 = canvas1.getContext("2d");
+const overlay1 = document.getElementById("overlay1");
+const paretoPanel = document.getElementById("pareto-panel");
+const extractBtn = document.getElementById("extract-btn");
+
+let t1_drawnPoints = [], t1_canvasPath = [], t1_fittedCurve = null;
+let t1_expression = null, t1_expressionDisplay = null;
+let t1_isDrawing = false, t1_computing = false;
+let t1_paretoData = [], t1_selectedIdx = -1;
+// Store the x range of drawn points for extraction
+let t1_xMin = -10, t1_xMax = 10;
+
+function t1_redraw() {
+  const w = canvas1.width, h = canvas1.height;
+  drawGrid(ctx1, w, h);
+  if (t1_drawnPoints.length >= 2) {
+    const path = t1_drawnPoints.map(([mx,my]) => mathToCanvas(mx,my,w,h));
+    drawUserCurve(ctx1, path);
+  }
+  drawFittedCurve(ctx1, t1_fittedCurve, w, h);
+}
+
+function t1_resize() { resizeCanvas(canvas1, ctx1); t1_redraw(); }
+window.addEventListener("resize", () => { t1_resize(); t3_resize(); tp_redraw(); });
+
+canvas1.addEventListener("pointerdown", (e) => {
+  t1_isDrawing = true; canvas1.setPointerCapture(e.pointerId);
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"cancel"}));
+  t1_drawnPoints = []; t1_canvasPath = []; t1_fittedCurve = null;
+  t1_expression = null; t1_expressionDisplay = null;
+  t1_computing = false; paretoPanel.style.display = "none"; extractBtn.style.display = "none";
+  const [mx,my] = canvasToMath(e.offsetX, e.offsetY, canvas1.width, canvas1.height);
+  t1_drawnPoints.push([mx,my]); t1_canvasPath.push([e.offsetX, e.offsetY]);
+  t1_redraw();
+  overlay1.innerHTML = '<span class="hint">Drawing...</span>';
+});
+
+canvas1.addEventListener("pointermove", (e) => {
+  if (!t1_isDrawing) return;
+  const [mx,my] = canvasToMath(e.offsetX, e.offsetY, canvas1.width, canvas1.height);
+  t1_drawnPoints.push([mx,my]); t1_canvasPath.push([e.offsetX, e.offsetY]);
+  const len = t1_canvasPath.length;
+  if (len >= 2) {
+    ctx1.strokeStyle = "#cdd6f4"; ctx1.lineWidth = 2.5; ctx1.lineJoin = "round"; ctx1.lineCap = "round";
+    ctx1.beginPath(); ctx1.moveTo(t1_canvasPath[len-2][0], t1_canvasPath[len-2][1]);
+    ctx1.lineTo(t1_canvasPath[len-1][0], t1_canvasPath[len-1][1]); ctx1.stroke();
+  }
+});
+
+canvas1.addEventListener("pointerup", () => {
+  if (!t1_isDrawing) return;
+  t1_isDrawing = false;
+  if (t1_drawnPoints.length < 5) { overlay1.innerHTML = '<span class="hint">Draw a longer curve</span>'; return; }
+  // Compute x range of drawn points
+  const xs = t1_drawnPoints.map(p => p[0]);
+  t1_xMin = Math.min(...xs); t1_xMax = Math.max(...xs);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:"fit", points:t1_drawnPoints}));
+    t1_computing = true;
+    overlay1.innerHTML = '<span class="status">Computing symbolic regression\u2026</span>';
+  } else {
+    overlay1.innerHTML = '<span class="status" style="color:#f38ba8">Disconnected \u2013 reload page</span>';
+  }
+});
+
+canvas1.addEventListener("contextmenu", e => e.preventDefault());
+
+// ---- LaTeX / Pareto for Tab 1 ----
+function renderKatex(latex, el) {
+  function go() {
+    if (typeof katex !== "undefined") {
+      try { katex.render(latex, el, {throwOnError:false, displayMode:false}); } catch(e) { el.textContent = latex; }
+    } else setTimeout(go, 100);
+  }
+  go();
+}
+
+function t1_renderExpr(latex) {
+  overlay1.innerHTML = '<span class="expr" id="katex1"></span>';
+  renderKatex(latex, document.getElementById("katex1"));
+}
+
+function t1_buildPareto() {
+  let html = '<table><tr><th>R\u00b2</th><th>Len</th><th>MDL</th><th>Expression</th></tr>';
+  for (let i=0; i<t1_paretoData.length; i++) {
+    const p = t1_paretoData[i];
+    const sel = i===t1_selectedIdx ? " selected" : "";
+    const best = i===t1_selectedIdx ? " best-row" : "";
+    html += `<tr class="pareto-row${sel}${best}" data-idx="${i}"><td>${p.r2}</td><td>${p.length}</td><td>${p.mdl}</td><td id="pe-${i}"></td></tr>`;
+  }
+  html += '</table>';
+  paretoPanel.innerHTML = html;
+  for (let i=0; i<t1_paretoData.length; i++) {
+    const el = document.getElementById(`pe-${i}`);
+    if (el) renderKatex(t1_paretoData[i].latex || t1_paretoData[i].expr, el);
+  }
+  paretoPanel.querySelectorAll(".pareto-row").forEach(row => {
+    row.addEventListener("click", () => t1_selectPareto(parseInt(row.dataset.idx)));
+  });
+}
+
+function t1_selectPareto(idx) {
+  if (idx<0||idx>=t1_paretoData.length) return;
+  t1_selectedIdx = idx;
+  const p = t1_paretoData[idx];
+  if (p.curve && p.curve.length) t1_fittedCurve = p.curve;
+  t1_expression = p.expr;
+  t1_expressionDisplay = p.latex || p.expr;
+  t1_renderExpr(t1_expressionDisplay);
+  t1_redraw();
+  paretoPanel.querySelectorAll(".pareto-row").forEach((r,i) => r.classList.toggle("selected", i===idx));
+  extractBtn.style.display = "block";
+}
+
+// ---- Extract button ----
+extractBtn.addEventListener("click", () => {
+  if (!t1_expression) return;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:"extract", expression:t1_expression, xMin:t1_xMin, xMax:t1_xMax}));
+    overlay1.innerHTML = '<span class="status">Extracting shape properties\u2026</span>';
+    extractBtn.style.display = "none";
+  }
+});
+
+// =========================================================================
+// TAB 2 STATE & LOGIC  (Constraint Editor)
+// =========================================================================
+let constraints = [];  // shared state: [{id, enabled, order, sign, xLow, xHigh, description, latex}]
+let nextConstraintId = 0;
+
+const constraintTbody = document.getElementById("constraint-tbody");
+const latexPreview = document.getElementById("latex-preview");
+const tab2Status = document.getElementById("tab2-status");
+
+function setConstraints(list) {
+  constraints = list;
+  nextConstraintId = constraints.length ? Math.max(...constraints.map(c=>c.id)) + 1 : 0;
+  renderConstraintTable();
+  renderLatexPreview();
+}
+
+function isGlobalConstraint(c) {
+  return c.xLow === XMIN && c.xHigh === XMAX;
+}
+
+function renderConstraintTable() {
+  constraintTbody.innerHTML = "";
+  constraints.forEach((c, idx) => {
+    const global = isGlobalConstraint(c);
+    const tr = document.createElement("tr");
+    if (!global) { tr.classList.add("not-applicable"); c.enabled = false; }
+    tr.innerHTML = `
+      <td><input type="checkbox" ${c.enabled?"checked":""} ${!global?"disabled":""} data-idx="${idx}" class="c-toggle"
+        title="${global ? 'Toggle constraint' : 'Only global constraints (x \u2208 [-10, 10]) can be applied'}"></td>
+      <td><select data-idx="${idx}" class="c-order">
+        <option value="0" ${c.order===0?"selected":""}>f(x)</option>
+        <option value="1" ${c.order===1?"selected":""}>f'(x)</option>
+        <option value="2" ${c.order===2?"selected":""}>f''(x)</option>
+      </select></td>
+      <td><select data-idx="${idx}" class="c-sign">
+        <option value="+" ${c.sign==="+"?"selected":""}>\u2265 0</option>
+        <option value="-" ${c.sign==="-"?"selected":""}>\u2264 0</option>
+      </select></td>
+      <td><input type="number" step="0.1" value="${c.xLow}" data-idx="${idx}" class="c-xlow">
+        ${c.xLow !== XMIN ? `<button class="reset-btn" data-idx="${idx}" data-field="xlow" title="Set to ${XMIN}">\u2192${XMIN}</button>` : ''}</td>
+      <td><input type="number" step="0.1" value="${c.xHigh}" data-idx="${idx}" class="c-xhigh">
+        ${c.xHigh !== XMAX ? `<button class="reset-btn" data-idx="${idx}" data-field="xhigh" title="Set to ${XMAX}">\u2192${XMAX}</button>` : ''}</td>
+      <td class="c-desc">${escapeHtml(c.description)}${!global ? ' <span style="color:#f9e2af;font-size:11px">(not global)</span>' : ''}</td>
+      <td><button class="delete-btn" data-idx="${idx}">\u2716</button></td>
+    `;
+    constraintTbody.appendChild(tr);
+  });
+
+  // Attach listeners
+  constraintTbody.querySelectorAll(".c-toggle").forEach(el => el.addEventListener("change", e => {
+    constraints[+e.target.dataset.idx].enabled = e.target.checked;
+    updateConstraintLatex(+e.target.dataset.idx); renderLatexPreview();
+  }));
+  constraintTbody.querySelectorAll(".c-order").forEach(el => el.addEventListener("change", e => {
+    const idx = +e.target.dataset.idx; constraints[idx].order = +e.target.value;
+    updateConstraintLatex(idx); renderConstraintTable(); renderLatexPreview();
+  }));
+  constraintTbody.querySelectorAll(".c-sign").forEach(el => el.addEventListener("change", e => {
+    const idx = +e.target.dataset.idx; constraints[idx].sign = e.target.value;
+    updateConstraintLatex(idx); renderConstraintTable(); renderLatexPreview();
+  }));
+  constraintTbody.querySelectorAll(".c-xlow").forEach(el => el.addEventListener("change", e => {
+    const idx = +e.target.dataset.idx; constraints[idx].xLow = parseFloat(e.target.value);
+    updateConstraintLatex(idx); renderConstraintTable(); renderLatexPreview();
+  }));
+  constraintTbody.querySelectorAll(".c-xhigh").forEach(el => el.addEventListener("change", e => {
+    const idx = +e.target.dataset.idx; constraints[idx].xHigh = parseFloat(e.target.value);
+    updateConstraintLatex(idx); renderConstraintTable(); renderLatexPreview();
+  }));
+  constraintTbody.querySelectorAll(".delete-btn").forEach(el => el.addEventListener("click", e => {
+    constraints.splice(+e.target.dataset.idx, 1);
+    renderConstraintTable(); renderLatexPreview();
+  }));
+  constraintTbody.querySelectorAll(".reset-btn").forEach(el => el.addEventListener("click", e => {
+    const idx = +e.target.dataset.idx;
+    const field = e.target.dataset.field;
+    if (field === "xlow") { constraints[idx].xLow = XMIN; }
+    else if (field === "xhigh") { constraints[idx].xHigh = XMAX; }
+    updateConstraintLatex(idx);
+    renderConstraintTable(); renderLatexPreview();
+  }));
+}
+
+function updateConstraintLatex(idx) {
+  const c = constraints[idx];
+  const orderLabels = {0: ["f(x) \\geq 0","f(x) \\leq 0"], 1: ["f'(x) \\geq 0","f'(x) \\leq 0"], 2: ["f''(x) \\geq 0","f''(x) \\leq 0"]};
+  const descs = {0: {"+":"non-negative","-":"non-positive"}, 1: {"+":"monotonic non-decreasing","-":"monotonic non-increasing"}, 2: {"+":"convex","-":"concave"}};
+  const rhs = (orderLabels[c.order] || orderLabels[0])[c.sign === "+" ? 0 : 1];
+  c.latex = `${c.xLow} \\leq x \\leq ${c.xHigh} \\implies ${rhs}`;
+  c.description = (descs[c.order] || descs[0])[c.sign] || "constraint";
+}
+
+let selectedRenderedIdx = -1; // index into enabled constraints for highlight
+
+function renderLatexPreview() {
+  if (!constraints.length) { latexPreview.innerHTML = '<span style="color:#7f849c">No constraints</span>'; selectedRenderedIdx = -1; tp_redraw(); return; }
+  latexPreview.innerHTML = "";
+  constraints.forEach((c, i) => {
+    const div = document.createElement("div");
+    const active = c.enabled && isGlobalConstraint(c);
+    div.className = "rendered-row" + (i === selectedRenderedIdx ? " selected" : "") + (!active ? " disabled-row" : "");
+    div.dataset.idx = i;
+    div.addEventListener("click", () => {
+      selectedRenderedIdx = (selectedRenderedIdx === i) ? -1 : i;
+      latexPreview.querySelectorAll(".rendered-row").forEach((r, j) => r.classList.toggle("selected", j === selectedRenderedIdx));
+      tp_redraw();
+    });
+    latexPreview.appendChild(div);
+    if (typeof katex !== "undefined") {
+      try { katex.render(c.latex, div, {throwOnError:false, displayMode:true}); } catch (e) { div.textContent = c.latex; }
+    } else { div.textContent = c.latex; }
+  });
+}
+
+// Add constraint button
+document.getElementById("add-constraint-btn").addEventListener("click", () => {
+  const rhs = "f(x) \\geq 0";
+  const c = {id: nextConstraintId++, enabled:true, order:0, sign:"+", xLow:t1_xMin, xHigh:t1_xMax, description:"non-negative",
+    latex: `${t1_xMin} \\leq x \\leq ${t1_xMax} \\implies ${rhs}`};
+  constraints.push(c);
+  renderConstraintTable(); renderLatexPreview();
+});
+
+// Apply button → go to Tab 3
+document.getElementById("apply-btn").addEventListener("click", () => switchTab("tab3"));
+
+// =========================================================================
+// TAB 2 PREVIEW CANVAS (read-only mirror of Tab 1)
+// =========================================================================
+const canvasPreview = document.getElementById("c-preview");
+const ctxPreview = canvasPreview.getContext("2d");
+
+function tp_redraw() {
+  const wrap = canvasPreview.parentElement;
+  const availW = wrap.clientWidth;
+  const availH = wrap.clientHeight;
+  // 1:1 aspect ratio: use the smaller dimension
+  const size = Math.max(100, Math.min(availW, availH));
+  canvasPreview.width = size;
+  canvasPreview.height = size;
+  canvasPreview.style.width = size + 'px';
+  canvasPreview.style.height = size + 'px';
+  // Center in the wrap
+  canvasPreview.style.margin = '0 auto';
+  const w = size, h = size;
+  drawGrid(ctxPreview, w, h);
+
+  // Draw highlight band for selected rendered constraint
+  if (selectedRenderedIdx >= 0 && selectedRenderedIdx < constraints.length) {
+    const c = constraints[selectedRenderedIdx];
+    const [x1] = mathToCanvas(c.xLow, 0, w, h);
+    const [x2] = mathToCanvas(c.xHigh, 0, w, h);
+    ctxPreview.fillStyle = "rgba(137,180,250,0.18)";
+    ctxPreview.fillRect(x1, 0, x2 - x1, h);
+    // edges
+    ctxPreview.strokeStyle = "rgba(137,180,250,0.5)"; ctxPreview.lineWidth = 2; ctxPreview.setLineDash([6,4]);
+    ctxPreview.beginPath(); ctxPreview.moveTo(x1, 0); ctxPreview.lineTo(x1, h); ctxPreview.stroke();
+    ctxPreview.beginPath(); ctxPreview.moveTo(x2, 0); ctxPreview.lineTo(x2, h); ctxPreview.stroke();
+    ctxPreview.setLineDash([]);
+  }
+
+  // Draw user curve from Tab 1
+  if (t1_drawnPoints.length >= 2) {
+    const path = t1_drawnPoints.map(([mx,my]) => mathToCanvas(mx, my, w, h));
+    drawUserCurve(ctxPreview, path);
+  }
+  // Draw fitted curve from Tab 1
+  drawFittedCurve(ctxPreview, t1_fittedCurve, w, h);
+}
+
+function tp_resize() { tp_redraw(); }
+
+// =========================================================================
+// TAB 3 STATE & LOGIC  (Constrained Fit)
+// =========================================================================
+const canvas3 = document.getElementById("c3");
+const ctx3 = canvas3.getContext("2d");
+const overlay3 = document.getElementById("overlay3");
+const segmentInfo = document.getElementById("segment-info");
+
+let t3_drawnPoints = [], t3_canvasPath = [], t3_fittedCurve = null;
+let t3_isDrawing = false, t3_computing = false;
+let t3_segments = [];
+
+function t3_redraw() {
+  const w = canvas3.width, h = canvas3.height;
+  drawGrid(ctx3, w, h);
+  drawSegmentBands(ctx3, w, h, t3_segments);
+  if (t3_drawnPoints.length >= 2) {
+    const path = t3_drawnPoints.map(([mx,my]) => mathToCanvas(mx,my,w,h));
+    drawUserCurve(ctx3, path);
+  }
+  drawFittedCurve(ctx3, t3_fittedCurve, w, h, "#a6e3a1");
+}
+
+function t3_resize() { resizeCanvas(canvas3, ctx3); t3_redraw(); }
+
+canvas3.addEventListener("pointerdown", (e) => {
+  t3_isDrawing = true; canvas3.setPointerCapture(e.pointerId);
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"cancel"}));
+  t3_drawnPoints = []; t3_canvasPath = []; t3_fittedCurve = null;
+  t3_computing = false; t3_segments = [];
+  segmentInfo.style.display = "none";
+  const [mx,my] = canvasToMath(e.offsetX, e.offsetY, canvas3.width, canvas3.height);
+  t3_drawnPoints.push([mx,my]); t3_canvasPath.push([e.offsetX, e.offsetY]);
+  t3_redraw();
+  overlay3.innerHTML = '<span class="hint">Drawing...</span>';
+});
+
+canvas3.addEventListener("pointermove", (e) => {
+  if (!t3_isDrawing) return;
+  const [mx,my] = canvasToMath(e.offsetX, e.offsetY, canvas3.width, canvas3.height);
+  t3_drawnPoints.push([mx,my]); t3_canvasPath.push([e.offsetX, e.offsetY]);
+  const len = t3_canvasPath.length;
+  if (len >= 2) {
+    ctx3.strokeStyle = "#cdd6f4"; ctx3.lineWidth = 2.5; ctx3.lineJoin = "round"; ctx3.lineCap = "round";
+    ctx3.beginPath(); ctx3.moveTo(t3_canvasPath[len-2][0], t3_canvasPath[len-2][1]);
+    ctx3.lineTo(t3_canvasPath[len-1][0], t3_canvasPath[len-1][1]); ctx3.stroke();
+  }
+});
+
+canvas3.addEventListener("pointerup", () => {
+  if (!t3_isDrawing) return;
+  t3_isDrawing = false;
+  if (t3_drawnPoints.length < 5) { overlay3.innerHTML = '<span class="hint">Draw a longer curve</span>'; return; }
+  const globalEnabled = constraints.filter(c => c.enabled && isGlobalConstraint(c));
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:"fit_cpsplines", points:t3_drawnPoints, constraints:globalEnabled}));
+    t3_computing = true;
+    overlay3.innerHTML = '<span class="status">Fitting with CPsplines' + (globalEnabled.length ? ` (${globalEnabled.length} constraints)` : '') + '\u2026</span>';
+  } else {
+    overlay3.innerHTML = '<span class="status" style="color:#f38ba8">Disconnected \u2013 reload page</span>';
+  }
+});
+
+canvas3.addEventListener("contextmenu", e => e.preventDefault());
+
+function t3_showSegments(segs) {
+  t3_segments = segs || [];
+  if (!t3_segments.length) { segmentInfo.style.display = "none"; return; }
+  segmentInfo.style.display = "block";
+  segmentInfo.innerHTML = "<b>Segments</b><br>" + t3_segments.map(s =>
+    `<div class="seg-item"><span class="seg-range">[${s.xLow.toFixed(2)}, ${s.xHigh.toFixed(2)}]</span>` +
+    (s.constraints.length ? `<span class="seg-desc">${escapeHtml(s.constraints.join(", "))}</span>` : "") + "</div>"
+  ).join("");
+}
+
+// =========================================================================
+// WEBSOCKET
+// =========================================================================
+let ws;
+function connectWS() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
+  ws.onopen = () => {
+    overlay1.innerHTML = '<span class="hint">Draw a curve to fit</span>';
+  };
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+
+    if (msg.type === "result") {
+      // Tab 1: symbolic regression result
+      t1_computing = false;
+      t1_expression = msg.expression;
+      t1_expressionDisplay = msg.latex || msg.expression;
+      t1_fittedCurve = msg.curve;
+      t1_paretoData = msg.pareto || [];
+      t1_selectedIdx = msg.bestIdx != null ? msg.bestIdx : -1;
+      t1_renderExpr(t1_expressionDisplay);
+      t1_redraw();
+      if (t1_paretoData.length) { t1_buildPareto(); paretoPanel.style.display = "block"; }
+      extractBtn.style.display = "block";
+    }
+    else if (msg.type === "constraints") {
+      // Shape extraction result → populate Tab 2
+      setConstraints(msg.constraints);
+      tab2Status.textContent = `Extracted ${msg.constraints.length} shape properties from the fitted expression.`;
+      switchTab("tab2");
+    }
+    else if (msg.type === "cpsplines_result") {
+      // Tab 3: CPsplines result
+      t3_computing = false;
+      t3_fittedCurve = msg.curve;
+      t3_redraw();
+      const applied = msg.constraints_applied || [];
+      const info = applied.length && applied[0] !== '(unconstrained fallback)' ? ` (${applied.length} constraints)` : '';
+      overlay3.innerHTML = '<span class="expr" style="color:#a6e3a1; font-size:16px;">CPsplines fit' + info + '</span>';
+    }
+    else if (msg.type === "error") {
+      t1_computing = false; t3_computing = false;
+      const errHtml = `<span class="status" style="color:#f38ba8">${escapeHtml(msg.message)}</span>`;
+      overlay1.innerHTML = errHtml;
+      overlay3.innerHTML = errHtml;
+    }
+  };
+  ws.onclose = () => {
+    overlay1.innerHTML = '<span class="status" style="color:#f38ba8">Disconnected \u2013 reconnecting\u2026</span>';
+    setTimeout(connectWS, 2000);
+  };
+}
+
+function escapeHtml(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+connectWS();
+t1_resize();
+t3_resize();
+tp_redraw();
+</script>
+</body>
+</html>

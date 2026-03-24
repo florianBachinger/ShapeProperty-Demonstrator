@@ -1,0 +1,9 @@
+numpy
+pyoperon
+sympy
+fastapi
+uvicorn[standard]
+websockets
+scikit-learn
+cpsplines @ git+https://github.com/ManuelNavarroGarcia/cpsplines@5cb607b77e9fd8fd6e34432cc9f8560f8aa87236
+# project dependencies:
