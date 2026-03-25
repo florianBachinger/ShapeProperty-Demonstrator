@@ -398,7 +398,7 @@ def _run_cpsplines(points_json: str, constraints_json: str,
         # Predict strictly within the fitted data range to stay inside
         # the B-spline basis definition domain.
         x_lo, x_hi = float(X.min()), float(X.max())
-        x_dense = np.linspace(x_lo, x_hi, 300)
+        x_dense = np.linspace(-10, 10, 300)
 
         # Build shape constraints dict from enabled (global) constraints
         shape_dict = {}
@@ -421,6 +421,7 @@ def _run_cpsplines(points_json: str, constraints_json: str,
             try:
                 m = CPsplines(
                     deg=(3,), ord_d=(2,), k=(30,),
+                    x_range={"x": (-10, 10)},
                     sp_args={"options": {"ftol": 1e-12}},
                     shape_constraints=attempt_shape,
                 )
